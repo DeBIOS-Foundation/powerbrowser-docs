@@ -1,0 +1,14 @@
+# Owners for the always-loaded entry files, the triage workflow and the code it runs.
+# GitHub enforces these lines only when branch protection or a ruleset requires code-owner review.
+# Each pattern is anchored to the repository root; the owner is the single handle below.
+/AGENTS.md @ServerDestroyer
+/CLAUDE.md @ServerDestroyer
+/.agents/ @ServerDestroyer
+/.prompts/ @ServerDestroyer
+/.github/ @ServerDestroyer
+/docs/_shared/ @ServerDestroyer
+/.claude/ @ServerDestroyer
+/scripts/ @ServerDestroyer
+/docs/FEEDBACK.md @ServerDestroyer
+/.markdownlint-cli2.jsonc @ServerDestroyer
+/lychee.toml @ServerDestroyer

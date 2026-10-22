@@ -1,0 +1,51 @@
+name: Doc gap
+description: Report a fact the PowerBrowser docs left out, got wrong, or that changed in PowerBrowser after the doc was checked.
+title: "[doc-gap] "
+labels: [doc-gap]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow `docs/FEEDBACK.md`. Search open and closed doc-gap issues first, and file at most 3 in one session.
+        Evidence may hold `$PB_REPO/<path>` and repo-relative paths, symbol names, quotes of at most 5 lines and the search or `git` commands you ran, written with `$PB_REPO`. Never paste absolute paths, tokens, secrets, private page content or user data.
+  - type: dropdown
+    id: gap-type
+    attributes:
+      label: Gap type
+      description: "guessed: the doc covers the topic but left out a fact the task needed. wrong-fact: PB source at the doc's stamp commit contradicts the doc. missing-topic: no doc covers the topic. drift: the doc was right at its stamp commit, but PB changed the fact after it."
+      options:
+        - guessed
+        - wrong-fact
+        - missing-topic
+        - drift
+    validations:
+      required: true
+  - type: input
+    id: doc
+    attributes:
+      label: Doc
+      description: The repo-relative path of the doc under `docs/` that has the gap.
+      placeholder: docs/09-tabs-reference.md
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      description: What you were building or changing when you hit the gap, in one or two sentences. Describe it generically; never name your own projects, products, clients or private repositories.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: "What the doc says and what PB says. Allowed: `$PB_REPO/<path>` paths and repo-relative paths of this repo, symbol names, and quotes of at most 5 lines from PB source or these docs, each with its path and symbol, and the search or `git` commands you ran, written with `$PB_REPO`. Never: absolute paths, home-directory or tilde paths, tokens, cookies, passwords, API keys or any other secret, private page content (text from web pages the user visited), or user data (browsing history, tab lists, bookmarks, profile files, names, email addresses), or names of your own projects, products, clients or private repositories."
+    validations:
+      required: true
+  - type: input
+    id: pb-commit
+    attributes:
+      label: PB commit
+      description: "The PowerBrowser (PB) commit you checked, from `git -C \"$PB_REPO\" rev-parse --short HEAD`, or `none` when there is no PB checkout."
+    validations:
+      required: true

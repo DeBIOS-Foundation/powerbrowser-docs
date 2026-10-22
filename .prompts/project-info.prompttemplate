@@ -1,0 +1,28 @@
+## PowerBrowser extension workspace
+
+This workspace holds new PowerBrowser (PB) extensions and the AI-facing reference docs for every PB extension and connection surface. PB core lives at $PB_REPO and is read-only reference unless the user says otherwise.
+
+### What PowerBrowser is
+- A rebrandable web browser platform: a real Firefox ESR 153.5 engine whose default GUI is this Eclipse Theia 1.76.0 shell. You are running inside it.
+- It is a patch-set repo, not a code fork: unmodified Firefox ESR in `upstream/`, a small `patches/` stack, and PB's own tree. Theia is consumed as `@theia/*` npm packages; PB additions are `@powerbrowser/*` extensions.
+- Firefox chrome (`TheiaService.sys.mjs`) runs the Theia backend as a Node sidecar on 127.0.0.1 behind a per-launch cookie, and shows the Theia frontend full-window.
+- Theia code reaches Firefox only through the `PowerBrowserAPI.sys.mjs` bridge. Tabs are URL-addressable and stored in `tabs.sqlite`. A stock browser window stays reachable.
+- Branding comes only from `configuration.toml` and `brand/`, through `scripts/generate.mjs`.
+- Full overview: docs/00-what-is-powerbrowser.md.
+
+### Read before acting
+- AGENTS.md: PB hard rules (binding) and the docs index.
+- docs/00-what-is-powerbrowser.md: what PB is, its components, how it boots and runs, data stores, repo layout, glossary.
+- docs/08-building-an-extension.md: how to learn PB and build an extension end to end (delivery, dev loop, testing, checklist).
+- docs/09-tabs-reference.md: tab model, tabs.sqlite schema, which tab API each extension type can use, change events, gaps.
+- docs/00-choosing-a-surface.md: maps a task to the right surface and doc, and lists what no surface supports yet.
+- docs/01 to docs/07: exact APIs, message kinds, MCP tools, config keys, build steps and source paths for each surface.
+- .agents/skills/powerbrowser-extensions/SKILL.md: the step-by-step procedure for PB extension work.
+
+### Key facts
+- Docs were verified against PB commit d353a94. If PB HEAD differs, re-check facts against PB source.
+- New Theia code is a compile-time `@powerbrowser/*` extension; there is no runtime install. Never edit Theia core or `upstream/`.
+- Firefox internals are reached only through powerbrowser/shell/PowerBrowserAPI.sys.mjs (bridge message kinds, see docs/02).
+- The only PB API reachable from outside the browser is the tab-store MCP server (docs/03). There is no REST API.
+- Ask the user before editing PB core, adding AI integration to PB core, changing shipped prefs, or adding an outbound host.
+- Never invent an API. Mark unconfirmed facts `UNVERIFIED:`.

@@ -1,0 +1,18 @@
+// markdownlint-cli2 config. Run from the repo root; "globs" sets the scope and the two arguments add the entry files outside it:
+//   nix shell nixpkgs#markdownlint-cli2 -c markdownlint-cli2 CLAUDE.md .prompts/project-info.prompttemplate
+{
+  "config": {
+    "default": true,
+    // MD013: stamps, identifiers and table rows are long by design.
+    "MD013": false,
+    // MD032: docs/CONVENTIONS.md "Doc header" starts the Source files list on the line right after "Source files:".
+    "MD032": false,
+    // MD038: docs/CONVENTIONS.md quotes the bullet prefix "- NOT COVERED: " with its trailing space.
+    "MD038": false,
+    // MD041: scripts/check-docs.mjs checks line 1 of every doc; agent.md is a prompt with no title.
+    "MD041": false,
+    // MD060: table pipe spacing is cosmetic.
+    "MD060": false
+  },
+  "globs": ["docs/**/*.md", "AGENTS.md", ".agents/**/*.md"]
+}

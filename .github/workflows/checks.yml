@@ -1,0 +1,24 @@
+name: checks
+on:
+  push:
+  pull_request:
+permissions: {}
+jobs:
+  self-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Run the triage and filing self-tests, then the docs and drift self-tests
+        run: |
+          node scripts/triage-doc-gap.mjs --self-test
+          node scripts/file-doc-gap.mjs --self-test
+          node scripts/check-docs.mjs --self-test
+          node scripts/check-drift.mjs --self-test

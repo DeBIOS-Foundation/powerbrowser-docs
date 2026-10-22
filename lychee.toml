@@ -1,0 +1,6 @@
+# lychee config: offline check of relative links and heading anchors. Run from the repo root:
+#   nix shell nixpkgs#lychee -c lychee 'docs/**/*.md' AGENTS.md '.agents/**/*.md' CLAUDE.md
+# .prompts/project-info.prompttemplate is not Markdown to lychee (it finds no links in it); check-docs' link rule covers it.
+offline = true
+include_fragments = "anchor-only"
+no_progress = true

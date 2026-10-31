@@ -23,9 +23,12 @@ jobs:
           node scripts/file-doc-gap.mjs --self-test
           node scripts/check-docs.mjs --self-test
           node scripts/check-drift.mjs --self-test
-          node scripts/publish.mjs --self-test
           node scripts/check-docs.mjs --no-pb
-          node scripts/publish.mjs --dry-run --scratch "$RUNNER_TEMP/publish"
+          # publish.mjs leaves itself out of the published tree, so its gates run only where it exists.
+          if [ -f scripts/publish.mjs ]; then
+            node scripts/publish.mjs --self-test
+            node scripts/publish.mjs --dry-run --scratch "$RUNNER_TEMP/publish"
+          fi
       # The action uses its own default globs unless given; these mirror .markdownlint-cli2.jsonc (rule settings are read from that file).
       - name: Markdown lint, full set (rule settings from .markdownlint-cli2.jsonc)
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0

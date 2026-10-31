@@ -16,9 +16,28 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - name: Run the triage and filing self-tests, then the docs and drift self-tests
+      # check-drift and check-docs without --no-pb read a PowerBrowser checkout and stay local; CI runs only the gates that need no PB checkout.
+      - name: Run the triage, filing, docs, drift and publish self-tests, then the no-PB docs and publish gates
         run: |
           node scripts/triage-doc-gap.mjs --self-test
           node scripts/file-doc-gap.mjs --self-test
           node scripts/check-docs.mjs --self-test
           node scripts/check-drift.mjs --self-test
+          node scripts/publish.mjs --self-test
+          node scripts/check-docs.mjs --no-pb
+          node scripts/publish.mjs --dry-run --scratch "$RUNNER_TEMP/publish"
+      # The action uses its own default globs unless given; these mirror .markdownlint-cli2.jsonc (rule settings are read from that file).
+      - name: Markdown lint, full set (rule settings from .markdownlint-cli2.jsonc)
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
+        with:
+          globs: |
+            **/*.md
+            !.planning/**
+            !.claude/skills/**
+            !.claude/CLAUDE.md
+            !node_modules/**
+      - name: Offline link and anchor check (lychee.toml)
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          fail: true
+          args: --config lychee.toml --exclude-path .planning --exclude-path .claude/skills --exclude-path node_modules './**/*.md' '.agents/**/*.md'

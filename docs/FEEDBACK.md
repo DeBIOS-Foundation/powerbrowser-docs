@@ -130,7 +130,7 @@ What the script does:
 - It wraps each `@name` mention, `owner/repo#N` reference and GitHub issue, pull request or discussion URL that is outside backticks in backticks, so the filed text notifies no account and adds no reference event to another repository.
 - It runs the repository check and the label check above.
 - It builds the title `[doc-gap] <doc path>: <gap type>` and the body from the template under [Issue body](#issue-body), and puts the dedupe key `<!-- doc-gap:<doc path>:<gap type> -->` on its own line before the first section.
-- If an open `doc-gap` issue carries the same dedupe key, it adds the report to that issue as a comment. Otherwise it files a new issue with the label `doc-gap`. It checks open `doc-gap` issues only, so it does not see an issue closed as not planned or an issue without the label. The triage workflow's duplicate check is separate: it reads only open issues that carry `doc-gap`, have the form sections and do not carry `needs-redaction`; run steps 2 and 3 of [Before you file](#before-you-file) before the script.
+- If an open `doc-gap` issue whose body reads as the doc-gap form (every form section present once, in form order) has the same doc path and gap type, it adds the report to that issue as a comment. An issue whose body is not that form never matches, even when it has the dedupe key or the same title. Otherwise it files a new issue with the label `doc-gap`. It checks open `doc-gap` issues only, so it does not see an issue closed as not planned or an issue without the label. The triage workflow's duplicate check is separate: it reads only open issues that carry `doc-gap`, have the form sections and do not carry `needs-redaction`; run steps 2 and 3 of [Before you file](#before-you-file) before the script.
 - If a `doc-gaps/` file for the same doc and gap type exists, it adds that file's PB commit, Task and Evidence after your evidence in the issue or comment, and tells you that the user can delete the file. It does not delete the file. The file's text must pass the same refusals; if it does not, nothing is filed and the script names the file and the line.
 - If `gh` is missing or not logged in, there is no GitHub remote, the repository check (other than the top-level directory part) or the label check fails, or a `gh` command fails, it writes or appends the Route 2 file instead and prints the reason, with the last error line `gh` printed when that line holds no report text. It exits 1 without writing when `doc-gaps/` or the matching file in it is a symbolic link.
 
@@ -138,7 +138,11 @@ The first line of its output names the result: `filed: <issue URL>`, `commented:
 
 Route 2, a `doc-gaps/` file: the Route 1 script writes it itself when it cannot file; write it by hand only when you cannot run the script. Use it when you can write in a checkout of this repo but `gh` is missing, not logged in, offline or has no GitHub remote, the repository check fails, or the command fails. Write `doc-gaps/<YYYY-MM-DD>-<slug>.md` at the root of this repo, with the UTC date, and create `doc-gaps/` if it is missing. The slug is the doc path without `docs/` and `.md`, with each `/` replaced by `__`, then `-<gap type>`. If a `doc-gaps/` file for the same doc and gap type exists, with any date, and its Doc section names the same doc, append to it instead of writing a second file. Example: `doc-gaps/2026-10-21-09-tabs-reference-wrong-fact.md`. The file holds the title as a `# ` heading, an empty line, then the body. A file in `doc-gaps/` is a report not yet filed: whoever files it as an issue deletes the file once the issue exists. Files in `doc-gaps/` are tracked in git, not ignored, once committed. Do not commit or push the file yourself; tell the user the path, so they file it or commit and push it.
 
-Route 3, a prefilled link: use it when you cannot write in a checkout of this repo, for example inside PB with only these docs. Write each value to a file first, in your session's temporary directory; never paste a value into a shell command. Encode each file with this command, which reads the value from the file:
+Route 3, a prefilled link: use it when you cannot write in a checkout of this repo, for example inside PB with only these docs. Write each value to a file first, in your session's temporary directory; never paste a value into a shell command.
+
+Stop rule, before any encoding: if Task or Evidence holds a token-shaped string (a value the refusals under Filing reject), an absolute path (a home-directory, tilde or Windows drive path), or an email address, do not print the link. Tell the user that the link must be reviewed before it is opened, and replace each such value with a placeholder such as `<token>`, `<path>` or `<email>` first.
+
+Encode each file with this command, which reads the value from the file:
 
 ```sh
 node -e 'process.stdout.write(encodeURIComponent(require("fs").readFileSync(process.argv[1], "utf8").replace(/\n$/, "")))' <value file>
@@ -155,6 +159,15 @@ https://github.com/DeBIOS-Foundation/powerbrowser-docs/issues/new?template=doc-g
 GitHub answers a link that is too long with `414 URI Too Long`. If the link is longer than 6000 characters, leave `evidence` out of it, and `task` too if it is still longer. Print the values you left out as text for the user to paste into those fields.
 
 UNVERIFIED: GitHub fills the Gap type dropdown from the `gap-type` parameter; GitHub's documentation names only text fields for prefill. Verify: open the link and check the Gap type field; pick the type by hand if it is empty.
+
+## Maintainer: needs-redaction
+
+When triage adds the `needs-redaction` label, the issue body holds a value that the Evidence rules forbid. The maintainer does the following by hand:
+
+1. Edit the issue to remove the flagged value and put a placeholder in its place, such as `<uuid>` or `<token>`.
+2. If the value was a real credential, rotate it at its issuing service, whether or not the edit was made.
+
+The workflow makes no automatic body edit. The label is its only automatic action. The description of the `needs-redaction` label on the remote is a maintainer setting outside this repository; this repo does not change it.
 
 <!-- BEGIN pb-rules:footer -->
 Missing, wrong or guessed something here? File a doc-gap issue as described in `docs/FEEDBACK.md`.

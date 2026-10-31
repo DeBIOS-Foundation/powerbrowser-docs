@@ -1,6 +1,6 @@
 # Tab-store MCP server
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/theia/extensions/tab-uris/src/node/tab-store-access-endpoint.ts`
@@ -155,7 +155,7 @@ Symbols in the Source column are in `$PB_REPO/theia/extensions/tab-uris/src/node
 | Auth header format | exactly `Bearer ` + 64 chars `[0-9a-f]`; uppercase hex or extra whitespace fails | `tokenMatches` |
 | Body limit | 1 MiB (`MAX_BODY_BYTES`) -> HTTP 413 | `MAX_BODY_BYTES`, `handle` |
 | Response | HTTP 200, `Content-Type: application/json`, one JSON-RPC object; no batching, no SSE | `json` |
-| Theia token cookie | never arrives at this port from the browser: chrome strips it from requests to every `127.0.0.1` port except the sidecar's | `tokenCookieStrip` in `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs` |
+| Theia token cookie | never arrives at this port from the browser: chrome strips it from requests to every `127.0.0.1` port except the sidecar's, and from web-tab overlay requests even on the sidecar's port | `tokenCookieStrip` and `tokenCookieAllowed` in `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs` |
 
 ### Request checks, in order
 
@@ -256,8 +256,8 @@ Chrome-side routing: `PowerBrowserGroupParent.receiveMessage` in `$PB_REPO/power
 
 Not relayed: `TAB_STORE_RELAY_KINDS` in `$PB_REPO/theia/extensions/tab-uris/src/browser/tab-store-access-protocol.ts` holds the five read kinds and the write ops, nothing else. MCP clients therefore cannot reach:
 
-- the web-tab action kinds that go to `handleWebTabAction` (`webTabStop`, `webTabHistory`, `webTabGotoIndex`, `webTabActivated`) or the `webTab*` kinds that `handleGroupMutation` serves;
-- the other `STORE_REQUEST_KINDS` entries, including `resolveTypedAddress` (chrome-side resolution of typed address-bar text) `listSearchEngines` (the address bar's engine list) `placesFavicons` (cached favicons for address-bar rows), `searchSuggestions` (search-engine suggestions for typed text, classed `network`), `autofillOrigin` (inline autofill of a typed origin) and `removeHistoryEntry` (removes a page from history, classed `privileged`); their callers are `ChromeStoreClient.resolveTypedAddress`, `ChromeStoreClient.listSearchEngines`, `ChromeStoreClient.placesFavicons`, `ChromeStoreClient.searchSuggestions`, `ChromeStoreClient.autofillOrigin` and `ChromeStoreClient.removeHistoryEntry` in `$PB_REPO/theia/extensions/tab-uris/src/browser/chrome-store-client.ts`.
+- the web-tab action kinds that go to `handleWebTabAction` (`webTabStop`, `webTabHistory`, `webTabGotoIndex`, `webTabActivated`, `webTabSiteInfo`, `webTabSetPermission`, `webTabClearSiteData`, `webTabShieldToggle`) or the `webTab*` kinds that `handleGroupMutation` serves;
+- the other `STORE_REQUEST_KINDS` entries, including `resolveTypedAddress` (chrome-side resolution of typed address-bar text) `listSearchEngines` (the address bar's engine list) `placesFavicons` (cached favicons for address-bar rows), `searchSuggestions` (search-engine suggestions for typed text, classed `network`), `autofillOrigin` (inline autofill of a typed origin) `removeHistoryEntry` (removes a page from history, classed `privileged`), `readClipboardText` (the global clipboard's text, classed `privileged`), `openStockPage` (opens an app-menu stock page, classed `store-write`) and `quitRequest` (quits the application, classed `lifecycle`); their callers are `ChromeStoreClient.resolveTypedAddress`, `ChromeStoreClient.listSearchEngines`, `ChromeStoreClient.placesFavicons`, `ChromeStoreClient.searchSuggestions`, `ChromeStoreClient.autofillOrigin`, `ChromeStoreClient.removeHistoryEntry`, `ChromeStoreClient.readClipboardText`, `ChromeStoreClient.openStockPage` and `ChromeStoreClient.quitRequest` in `$PB_REPO/theia/extensions/tab-uris/src/browser/chrome-store-client.ts`.
 
 `TAB_STORE_RELAY_KINDS` in `$PB_REPO/theia/extensions/tab-uris/src/browser/tab-store-relay-contribution.ts` is the check that refuses every other kind in the window.
 

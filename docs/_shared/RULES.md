@@ -1,6 +1,6 @@
 # Shared rule blocks
 
-> Verified against PB 238fcdf on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/CLAUDE.md`

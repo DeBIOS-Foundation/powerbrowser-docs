@@ -1,6 +1,6 @@
 # Building a PowerBrowser extension
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/CLAUDE.md`
@@ -94,9 +94,9 @@ mkdir -p "$PB_REPO"/theia/extensions/<name>
 cp -r extensions/<name>/. "$PB_REPO"/theia/extensions/<name>/
 ```
 
-2. **PB core edit**: add `"@powerbrowser/<name>": "0.1.0"` to `dependencies` in `$PB_REPO/theia/applications/browser/package.json`, in alphabetical position.
-3. **PB core edit**: append `&& yarn --cwd extensions/<name> build` to the end of the `build:extensions` string in `$PB_REPO/theia/package.json`. The end is after every `@powerbrowser/*` package, so it satisfies the ordering rule.
-4. Build:
+1. **PB core edit**: add `"@powerbrowser/<name>": "0.1.0"` to `dependencies` in `$PB_REPO/theia/applications/browser/package.json`, in alphabetical position.
+2. **PB core edit**: append `&& yarn --cwd extensions/<name> build` to the end of the `build:extensions` string in `$PB_REPO/theia/package.json`. The end is after every `@powerbrowser/*` package, so it satisfies the ordering rule.
+3. Build:
 
 ```sh
 cd "$PB_REPO"
@@ -120,7 +120,7 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/powerbrowser/extensions"
 cp extensions/<name>/<name>-<version>.vsix "${XDG_CONFIG_HOME:-$HOME/.config}/powerbrowser/extensions/"
 ```
 
-3. Quit and relaunch PB (the folder is scanned once, at plugin deployment start).
+1. Quit and relaunch PB (the folder is scanned once, at plugin deployment start).
 
 Source: `PluginVSCodeDeployerParticipant.onWillStart` loads every `*.vsix` in `<configDir>/extensions` as `local-file:` (`$PB_REPO/theia/node_modules/@theia/plugin-ext-vscode/lib/node/plugin-vscode-deployer-participant.js`, method `onWillStart`); `configDir` is `THEIA_CONFIG_DIR`, which PB sets to `${XDG_CONFIG_HOME:-$HOME/.config}/powerbrowser` (`_resolveConfigDir` in `$PB_REPO/powerbrowser/shell/TheiaService.sys.mjs`). Unpacked deployments land in `${XDG_CONFIG_HOME:-$HOME/.config}/powerbrowser/deployedPlugins`.
 
@@ -199,11 +199,12 @@ env XDG_CONFIG_HOME=$TMP/config objdir/dist/bin/powerbrowser --profile $TMP/prof
 ```
 
    Note: the `cp` writes into `$PB_REPO/objdir/` (build output, untracked), not a tracked file. A throwaway `XDG_CONFIG_HOME` gives an empty PB config folder; put the `.vsix` or `customize.css` under `$TMP/config/powerbrowser/` instead. The sidecar runs `node` from PATH (pref `powerbrowser.sidecar.nodePath` in `$PB_REPO/powerbrowser/shell/powerbrowser-sidecar.js` is empty); it needs Node >= 24. On NixOS a system Node 24 is at `/run/current-system/sw/bin/node` when installed; elsewhere launch from inside `nix develop .#theia`.
-5. **Reload after a change**:
+
+1. **Reload after a change**:
    - Frontend change: Theia "Reload Window" command (or browser reload when standalone). UNVERIFIED: that Reload Window inside PB loads the new frontend bundle. Verify: change a visible label, rebuild, run Reload Window in PB and check the label.
    - Backend change: quit and relaunch PB. Killing the backend pid should make the supervisor respawn it: the health loop calls `_restart()` after consecutive probe failures (`_healthLoop` and `_restart` in `$PB_REPO/powerbrowser/shell/TheiaService.sys.mjs`), with a give-up budget of prefs `powerbrowser.sidecar.giveUpAttempts` (6) and `powerbrowser.sidecar.giveUpWallclockMs` (45000) in `$PB_REPO/powerbrowser/shell/powerbrowser-sidecar.js`. UNVERIFIED: kill-to-respawn as a dev workflow. Verify: kill the backend pid from the PB log and watch for a new `POWERBROWSER_BACKEND_READY` line.
    - Chrome-side change under `$PB_REPO/powerbrowser/shell/` (PB core only): purge the startup cache: `rm -rf objdir/tmp/profile-default/startupCache` (run in `$PB_REPO`) and run with `MOZ_PURGE_CACHES=1 ... -purgecaches`.
-6. **Watch mode**: no `watch` script exists (`$PB_REPO/docs/BUILD.md` mentions `yarn watch` in section "Theia half", but `$PB_REPO/theia/package.json` does not define it). UNVERIFIED: the candidate below. Verify: run both commands, edit a source file, and check that the app bundle rebuilds.
+2. **Watch mode**: no `watch` script exists (`$PB_REPO/docs/BUILD.md` mentions `yarn watch` in section "Theia half", but `$PB_REPO/theia/package.json` does not define it). UNVERIFIED: the candidate below. Verify: run both commands, edit a source file, and check that the app bundle rebuilds.
 
 ```sh
 cd "$PB_REPO"/theia/extensions/<name> && npx tsc -b -w                                      # terminal 1

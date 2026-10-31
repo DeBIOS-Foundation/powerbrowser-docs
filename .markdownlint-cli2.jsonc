@@ -1,5 +1,8 @@
-// markdownlint-cli2 config. Run from the repo root; "globs" sets the scope and the two arguments add the entry files outside it:
-//   nix shell nixpkgs#markdownlint-cli2 -c markdownlint-cli2 CLAUDE.md .prompts/project-info.prompttemplate
+// markdownlint-cli2 config. Run from the repo root with no file arguments: "globs" and "ignores" set the full-set scope
+// (every tracked Markdown file except .planning/, the .claude/skills symlink, and .claude/CLAUDE.md). The .claude/CLAUDE.md
+// exclusion is temporary: it is hand-written, tracked, and has open findings (MD033, MD034, MD036) that need a user decision
+// before it can be linted. The .prompts/project-info.prompttemplate file is not Markdown and is not linted here.
+//   nix shell nixpkgs#markdownlint-cli2 -c markdownlint-cli2
 {
   "config": {
     "default": true,
@@ -14,5 +17,6 @@
     // MD060: table pipe spacing is cosmetic.
     "MD060": false
   },
-  "globs": ["docs/**/*.md", "AGENTS.md", ".agents/**/*.md"]
+  "globs": ["**/*.md"],
+  "ignores": [".planning/**", ".claude/skills/**", ".claude/CLAUDE.md", "node_modules/**"]
 }

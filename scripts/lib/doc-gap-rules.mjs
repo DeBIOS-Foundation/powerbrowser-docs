@@ -82,3 +82,24 @@ export function refuseHits(text) {
     .filter(([, test]) => (typeof test === "function" ? test(l) : test.test(l)))
     .map(([id, , words]) => ({ line: i + 1, id, words })));
 }
+
+// Reads a doc-gap issue or report body as a form: "form" only when every FIELDS heading is present once, in form order.
+export function parseForm(body) {
+  const lines = String(body ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const heads = [];
+  lines.forEach((line, index) => {
+    const m = /^### (.+?)\s*$/.exec(line);
+    if (m) heads.push({ label: m[1], index });
+  });
+  if (heads.length === 0) return { kind: 'none', lines };
+  const want = FIELDS.map(([, label]) => label);
+  const inOrder = heads.length === want.length && heads.every((h, i) => h.label === want[i]);
+  if (!inOrder) return { kind: 'ambiguous', lines };
+  const values = {};
+  heads.forEach((h, i) => {
+    const end = i + 1 < heads.length ? heads[i + 1].index : lines.length;
+    const text = lines.slice(h.index + 1, end).join('\n').trim();
+    values[h.label] = text === NO_RESPONSE ? '' : text;
+  });
+  return { kind: 'form', values, lines, preamble: lines.slice(0, heads[0].index) };
+}

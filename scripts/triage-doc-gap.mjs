@@ -5,7 +5,10 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FORM, FIELDS, TYPES, NO_RESPONSE, LABEL_MAX, LABELS, dedupeKey, keyLine, isDocPath, parityProblems, refuseHits } from './lib/doc-gap-rules.mjs';
+import { FORM, FIELDS, TYPES, NO_RESPONSE, LABEL_MAX, LABELS, dedupeKey, keyLine, isDocPath, parityProblems, parseForm, refuseHits } from './lib/doc-gap-rules.mjs';
+
+// parseForm lives in lib/doc-gap-rules.mjs so file-doc-gap applies the same form test to its dedupe match.
+export { parseForm };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -107,25 +110,6 @@ export function makeGitHubApi({ token, repo, apiUrl = 'https://api.github.com', 
 // ---- form parse: rules S1 to S4 and S6 ----
 
 // Kind none: no heading. Kind form: the five labels in form order, each once. Kind ambiguous: any other heading set.
-export function parseForm(body) {
-  const lines = String(body ?? '').replace(/\r\n?/g, '\n').split('\n');
-  const heads = [];
-  lines.forEach((line, index) => {
-    const m = /^### (.+?)\s*$/.exec(line);
-    if (m) heads.push({ label: m[1], index });
-  });
-  if (heads.length === 0) return { kind: 'none', lines };
-  const want = FIELDS.map(([, label]) => label);
-  const inOrder = heads.length === want.length && heads.every((h, i) => h.label === want[i]);
-  if (!inOrder) return { kind: 'ambiguous', lines };
-  const values = {};
-  heads.forEach((h, i) => {
-    const end = i + 1 < heads.length ? heads[i + 1].index : lines.length;
-    const text = lines.slice(h.index + 1, end).join('\n').trim();
-    values[h.label] = text === NO_RESPONSE ? '' : text;
-  });
-  return { kind: 'form', values, lines, preamble: lines.slice(0, heads[0].index) };
-}
 
 const isRegularFile = (p) => {
   try {

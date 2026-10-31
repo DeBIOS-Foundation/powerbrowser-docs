@@ -1,6 +1,6 @@
 # PowerBrowser conflicts register
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/CLAUDE.md`
@@ -26,6 +26,7 @@ Source files:
 - `$PB_REPO/docs/URI-SCHEMES.md`
 - `$PB_REPO/theia/extensions/tab-uris/src/browser/browser-window-command.ts`
 - `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs`
+- `$PB_REPO/patches/050-extension-tab-host.patch`
 - `$PB_REPO/scripts/check-patch-surface.sh`
 - `$PB_REPO/.gitignore`
 
@@ -129,16 +130,16 @@ PB's build doc runs the upstream fetch first on a fresh clone, and the fetch scr
 
 ## CF-07
 
-PB's planning files disagree on whether the shell's `getTabForBrowser` stays null; PB source returns null at the stamp, and a later planning decision reverses that rule for a planned phase.
+PB's planning files say the shell's `getTabForBrowser` stays null, or that a planned phase reverses that rule. PB source at the stamp has landed the reversal: the shell's `getTabForBrowser` delegates to a tab host and returns a tab node for each web-tab overlay.
 
-- Side 1: `$PB_REPO/powerbrowser/shell/powerbrowser.js` (step 1), `getTabForBrowser`: the `window.gBrowser` stand-in returns null, and its comment says none of its members synthesises a tab object.
+- Side 1: `$PB_REPO/powerbrowser/shell/powerbrowser.js` (step 1), `getTabForBrowser`: the `window.gBrowser` stand-in delegates it to `host.getTabForBrowser`, the accessor of `PowerBrowserTabHost` in `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs` (step 1). The host returns the tab node of a browser it created for a live web-tab overlay, and `null` for any other browser, including the Theia frame.
 - Side 2: `$PB_REPO/.planning/REQUIREMENTS.md` (step 5), section "Requirements — Power Browser v1.5 Chrome Bar Firefox Parity": the technical rulings say `getTabForBrowser` "keeps returning null".
 - Side 3: `$PB_REPO/.planning/PROJECT.md` (step 5), section "Key Decisions": "Extensions see web tabs via patch 050 (tracker gate) + a chrome-side tab host, new Phase 31.1", which "reverses the getTabForBrowser-null / no-synthesised-tab rule"; its outcome reads "Pending — v1.5".
 - Side 4: `$PB_REPO/.planning/ROADMAP.md` (step 5), section "Phase 31.1: Extension Tab Host (INSERTED)": "the getTabForBrowser-null ruling is reversed".
-- Follow: side 1 for current behaviour: `getTabForBrowser()` returns null (`getTabForBrowser` in `$PB_REPO/powerbrowser/shell/powerbrowser.js`). UNVERIFIED: WebExtensions do not see in-shell web tabs. Verify: load a temporary add-on in a PB build with a web tab open and call `browser.tabs.query({})` ([Firefox WebExtensions](05-webextensions.md)); until then, build nothing that depends on WebExtensions seeing those tabs. UNVERIFIED: PB plans to make web tabs visible to WebExtensions through patch 050 and a chrome-side tab host, which reverses the null rule. Verify: read `$PB_REPO/.planning/ROADMAP.md` section "Phase 31.1: Extension Tab Host (INSERTED)", run `git -C "$PB_REPO" ls-tree --name-only HEAD patches/`, and ask the user before changing `getTabForBrowser` or synthesising a tab object.
-- Rule: step 1 (PB source code) ranks above step 5 (PB planning files) in [Source precedence](CONVENTIONS.md#source-precedence) for current behaviour; for the planned reversal it is step 5 on both sides; precedence does not rank them, so the planned change is followed as `UNVERIFIED:`.
+- Follow: side 1. `getTabForBrowser(browser)` in the shell's `window.gBrowser` stand-in (`getTabForBrowser` in `$PB_REPO/powerbrowser/shell/powerbrowser.js`) returns the `PowerBrowserTabHost` node of a web-tab overlay and `null` otherwise. Patch `$PB_REPO/patches/050-extension-tab-host.patch` opens the extension tracker gate for the tab host window. The Theia frame never gets a node, so it is absent from `tabs`, which extensions read. UNVERIFIED: installed extensions see the shell's web tabs at runtime. Verify: run the `ext-tab-host-live` row of `$PB_REPO/scripts/verify-platform.sh` on a build with patch 050, or load a temporary add-on in that build with a web tab open and call `browser.tabs.query({})` ([Firefox WebExtensions](05-webextensions.md)).
+- Rule: step 1 (PB source code) ranks above step 5 (PB planning files) in [Source precedence](CONVENTIONS.md#source-precedence). Sides 2 to 4 are step 5 statements that describe the reversal as planned or pending; the source shows it landed, so they are not followed.
 - Used by: [Automation and disabled surfaces](07-automation-and-disabled-surfaces.md#gotchas), [Tabs reference](09-tabs-reference.md#gaps-for-a-tab-management-extension).
-- Check: `git -C "$PB_REPO" grep -n -F -e 'reverses the getTabForBrowser-null' HEAD -- .planning/PROJECT.md`, `git -C "$PB_REPO" grep -n -E -e 'getTabForBrowser. keeps' HEAD -- .planning/REQUIREMENTS.md`, `git -C "$PB_REPO" grep -n -F -e 'the getTabForBrowser-null ruling is reversed' HEAD -- .planning/ROADMAP.md`, `git -C "$PB_REPO" grep -n -A1 -F -e 'getTabForBrowser() {' HEAD -- powerbrowser/shell/powerbrowser.js | grep -F 'return null'` and `! git -C "$PB_REPO" ls-tree --name-only HEAD patches/ | grep -q '^patches/050'` test side 3, side 2, side 4, side 1 and that no patch 050 exists. The PROJECT.md row stays after PB implements Phase 31.1, so the last two commands are the ones that detect the reversal.
+- Check: `git -C "$PB_REPO" grep -n -F -e 'reverses the getTabForBrowser-null' HEAD -- .planning/PROJECT.md`, `git -C "$PB_REPO" grep -n -E -e 'getTabForBrowser. keeps' HEAD -- .planning/REQUIREMENTS.md` and `git -C "$PB_REPO" grep -n -F -e 'the getTabForBrowser-null ruling is reversed' HEAD -- .planning/ROADMAP.md` test sides 3, 2 and 4; `git -C "$PB_REPO" grep -n -A1 -F -e 'getTabForBrowser(browser) {' HEAD -- powerbrowser/shell/powerbrowser.js | grep -F -e 'return host.getTabForBrowser(browser);'`, `git -C "$PB_REPO" grep -n -F -e 'getTabForBrowser: browser => host.byBrowser.get(browser) ?? null' HEAD -- powerbrowser/shell/PowerBrowserAPI.sys.mjs` and `git -C "$PB_REPO" ls-tree --name-only HEAD patches/ | grep -q -x -F -e 'patches/050-extension-tab-host.patch'` test side 1 and the landed patch. The planning-file commands stay green until PB edits those files; the last three commands fail if PB reverts the landed delegation or the patch.
 
 ## CF-08
 
@@ -155,12 +156,12 @@ PB's instructions forbid a tab strip, toolbar, address bar or menu of PB's own, 
 
 ## CF-09
 
-PB's project file lists `configuration.toml` sections and keys that the generator's schema does not have.
+PB's project file lists `$PB_REPO/configuration.toml` sections and keys that the generator's schema does not have.
 
-- Side 1: `$PB_REPO/.planning/PROJECT.md` (step 5), section "configuration.toml planned sections": lists `[assets]` (logo, icon source, wordmark), `[build]` (channel, release and debug defaults), a support URL under `[urls]`, a logo under `[theia]`, a display name and a version scheme under `[product]`, and an installer name under `[identity]`.
+- Side 1: `$PB_REPO/.planning/PROJECT.md` (step 5), section "$PB_REPO/configuration.toml planned sections": lists `[assets]` (logo, icon source, wordmark), `[build]` (channel, release and debug defaults), a support URL under `[urls]`, a logo under `[theia]`, a display name and a version scheme under `[product]`, and an installer name under `[identity]`.
 - Side 2: `$PB_REPO/scripts/lib/config-schema.json` (step 1), `keys`: its `$comment` calls it the one schema table for the generator's unknown-key check; it has no `assets.*` or `build.*` key, no `urls.support`, no `theia.logo`, no `product.display_name` or `product.version_scheme` (the display name is `identity.display_name`) and no `identity.installer_name`.
-- Side 3: `$PB_REPO/docs/REBRANDING.md` (step 3), section "Reference: every `configuration.toml` field": one row per setting the schema knows; the logo is `mark.svg` in the brand directory (section "6. Drop in the logo"), and the support URL is `installer.support_url`.
-- Follow: side 2 and side 3. Take every `configuration.toml` key from `$PB_REPO/docs/REBRANDING.md` or from `keys` in `$PB_REPO/scripts/lib/config-schema.json`; change the logo by replacing `$PB_REPO/brand/mark.svg`; never add an `[assets]` or `[build]` table, which the generator refuses as an unknown setting.
+- Side 3: `$PB_REPO/docs/REBRANDING.md` (step 3), section "Reference: every `$PB_REPO/configuration.toml` field": one row per setting the schema knows; the logo is `mark.svg` in the brand directory (section "6. Drop in the logo"), and the support URL is `installer.support_url`.
+- Follow: side 2 and side 3. Take every `$PB_REPO/configuration.toml` key from `$PB_REPO/docs/REBRANDING.md` or from `keys` in `$PB_REPO/scripts/lib/config-schema.json`; change the logo by replacing `$PB_REPO/brand/mark.svg`; never add an `[assets]` or `[build]` table, which the generator refuses as an unknown setting.
 - Rule: step 1 (PB source code) ranks above step 5 (PB planning files) in [Source precedence](CONVENTIONS.md#source-precedence); step 3 (PB docs) agrees with step 1.
 - Used by: [What PowerBrowser is](00-what-is-powerbrowser.md#configuration-and-branding).
 - Check: `git -C "$PB_REPO" grep -n -F -e '[assets] logo' HEAD -- .planning/PROJECT.md` and `git -C "$PB_REPO" grep -n -F -e '[build] channel' HEAD -- .planning/PROJECT.md` test side 1.
@@ -192,6 +193,28 @@ PB's instructions and URI-schemes doc say the stock browser window opens through
 - Rule: step 1 (PB source code) ranks above step 2 (PB `CLAUDE.md`) and step 3 (PB docs) in [Source precedence](CONVENTIONS.md#source-precedence).
 - Used by: [What PowerBrowser is](00-what-is-powerbrowser.md#tabs-and-uris), [Choosing a surface](00-choosing-a-surface.md), [PowerBrowserGroup Actor Bridge](02-powerbrowser-api-bridge.md#navigation-web-tab-and-window-kinds-also-handlegroupmutation), [Firefox WebExtensions](05-webextensions.md#stock-tab-bridge-kind-relevant-to-add-ons).
 - Check: `git -C "$PB_REPO" grep -n -F -e 'chrome-side command is registered, and that absence is the ratified design' HEAD -- CLAUDE.md`, `git -C "$PB_REPO" grep -n -F -e 'opens two such windows' HEAD -- docs/URI-SCHEMES.md` and `git -C "$PB_REPO" grep -n -E -e 'the window opens on .about:blank.' HEAD -- docs/URI-SCHEMES.md` test side 1 and side 2.
+
+## CF-12
+
+PB's release document names a `release.yml` workflow that starts the release, while PB source has no such workflow at PB HEAD.
+
+- Side 1: `$PB_REPO/docs/RELEASING.md` (step 3), section "Architecture in one paragraph": a signed tag matching `v<ESR>-<revision>` "triggers `.github/workflows/release.yml`". The same document refers to `release.yml` in its job and gate tables.
+- Side 2: `$PB_REPO/.github/workflows/` (step 1), the files tracked at PB HEAD: `rebase-upstream.yml` and `verify.yml`. No `release.yml` is tracked.
+- Follow: side 2. These docs state that no release workflow is tracked at PB HEAD. A tag push does not start a release build until `release.yml` is authored. Tracked PB workflows are the only source for trigger and job facts.
+- Rule: step 1 (PB source code) ranks above step 3 (PB docs) in [Source precedence](CONVENTIONS.md#source-precedence).
+- Used by: [What PowerBrowser is](00-what-is-powerbrowser.md), [Building a PowerBrowser extension](08-building-an-extension.md).
+- Check: `git -C "$PB_REPO" grep -n -F -e 'triggers `.github/workflows/release.yml`' HEAD -- docs/RELEASING.md` and `git -C "$PB_REPO" ls-tree -r --name-only HEAD -- .github/workflows` (no `release.yml` listed) test side 1 and side 2.
+
+## CF-13
+
+PB's release document says the telemetry endpoint is stated at the shipped level, while `$PB_REPO/configuration.toml` at PB HEAD leaves `telemetry.endpoint` unset.
+
+- Side 1: `$PB_REPO/docs/RELEASING.md` (step 3), section "Architecture in one paragraph": the Theia frontend error hooks "post to a Cloudflare Worker at the events origin, shipped at telemetry level `off` with the endpoint stated so the existing preference is a working opt-in".
+- Side 2: `$PB_REPO/configuration.toml` (step 1), section `[telemetry]`: `level = "off"`, and the comment above the `[telemetry]` table says that `endpoint` "is deliberately UNSET here" (the phrase is split across two comment lines, so a single-line grep does not match). No `endpoint` key is present in the file at PB HEAD.
+- Follow: side 2. The shipped configuration has no telemetry endpoint. Telemetry sends nothing until a downstream sets `telemetry.endpoint` and an enabled level, and an enabled level without an endpoint fails the generate.
+- Rule: step 1 (PB source code) ranks above step 3 (PB docs) in [Source precedence](CONVENTIONS.md#source-precedence).
+- Used by: [What PowerBrowser is](00-what-is-powerbrowser.md), [Theia extensions](01-theia-extensions.md).
+- Check: `git -C "$PB_REPO" grep -n -F -e 'with the endpoint stated so the existing' HEAD -- docs/RELEASING.md` and `git -C "$PB_REPO" grep -n -F -e 'UNSET here' HEAD -- :/configuration.toml` test side 1 and side 2.
 
 <!-- BEGIN pb-rules:footer -->
 Missing, wrong or guessed something here? File a doc-gap issue as described in `docs/FEEDBACK.md`.

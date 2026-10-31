@@ -1,6 +1,6 @@
 # Theia Backend: JSON-RPC Services, HTTP Routes, Token Gate
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/CLAUDE.md`
@@ -130,7 +130,7 @@ export interface MyService {
 export const MyService = Symbol('MyService');
 ```
 
-2. **PB core edit**: **Backend impl** in `src/node/`. Validate and clamp every argument at the RPC boundary; any frontend code that holds the connection can call it (UNVERIFIED: whether VS Code plugins running in the plugin host can reach a `/services/powerbrowser/*` path; not tested. Verify: call the path from a test `.vsix` plugin in a running PB, or read the plugin-host RPC setup under `$PB_REPO/theia/node_modules/@theia/plugin-ext/`).
+1. **PB core edit**: **Backend impl** in `src/node/`. Validate and clamp every argument at the RPC boundary; any frontend code that holds the connection can call it (UNVERIFIED: whether VS Code plugins running in the plugin host can reach a `/services/powerbrowser/*` path; not tested. Verify: call the path from a test `.vsix` plugin in a running PB, or read the plugin-host RPC setup under `$PB_REPO/theia/node_modules/@theia/plugin-ext/`).
 
 ILLUSTRATIVE: the shape of `ChromeBarSuggestionServiceImpl` in `$PB_REPO/theia/extensions/chrome-bar/src/node/chrome-bar-suggestion-service-impl.ts`, renamed; not compiled.
 
@@ -151,7 +151,7 @@ export class MyServiceImpl implements MyService {
 }
 ```
 
-3. **PB core edit**: **Backend module** in `src/node/`. Static binds only (D-50).
+1. **PB core edit**: **Backend module** in `src/node/`. Static binds only (D-50).
 
 ILLUSTRATIVE: the shape of the default export of `$PB_REPO/theia/extensions/chrome-bar/src/node/chrome-bar-backend-module.ts`, renamed; not compiled.
 
@@ -174,9 +174,9 @@ export default new ContainerModule(bind => {
 
 If an existing class already satisfies the interface structurally, you can return it directly (`JsonRpcConnectionHandler<GroupQueryService>` in `$PB_REPO/theia/extensions/tab-uris/src/node/tab-query-backend-module.ts` returns `TabQueryService` for `GroupQueryService`), but then every public method of that class is callable over the path, not only the interface's (see Gotchas). Prefer a narrow impl class.
 
-4. **PB core edit**: **Frontend proxy** in your frontend module (see section A, with `MY_SERVICE_PATH`).
+1. **PB core edit**: **Frontend proxy** in your frontend module (see section A, with `MY_SERVICE_PATH`).
 
-5. **PB core edit**: **package.json** of the extension: register both modules.
+2. **PB core edit**: **package.json** of the extension: register both modules.
 
 ILLUSTRATIVE: `theiaExtensions` entries for a new extension; not copied from a PB file.
 
@@ -187,9 +187,9 @@ ILLUSTRATIVE: `theiaExtensions` entries for a new extension; not copied from a P
 ]
 ```
 
-6. **PB core edit**: **Compose into the app**: add `"@powerbrowser/<name>": "0.1.0"` to `dependencies` in `$PB_REPO/theia/applications/browser/package.json` (every `@powerbrowser/*` extension is listed in its `dependencies`). The `workspaces` key of `$PB_REPO/theia/package.json` already includes `extensions/*`, but its `build:extensions` script (`build:extensions` in `$PB_REPO/theia/package.json`) is a hard-coded `yarn --cwd extensions/<name> build` chain over the existing extensions: append `&& yarn --cwd extensions/<name> build` or your extension is never compiled by `yarn build`.
+1. **PB core edit**: **Compose into the app**: add `"@powerbrowser/<name>": "0.1.0"` to `dependencies` in `$PB_REPO/theia/applications/browser/package.json` (every `@powerbrowser/*` extension is listed in its `dependencies`). The `workspaces` key of `$PB_REPO/theia/package.json` already includes `extensions/*`, but its `build:extensions` script (`build:extensions` in `$PB_REPO/theia/package.json`) is a hard-coded `yarn --cwd extensions/<name> build` chain over the existing extensions: append `&& yarn --cwd extensions/<name> build` or your extension is never compiled by `yarn build`.
 
-7. **Build** inside `nix develop .#theia` (yarn does not work outside it). Each extension builds with `tsc -b` (`"build": "tsc -b"`); copy `$PB_REPO/theia/extensions/chrome-bar/tsconfig.json`. From `$PB_REPO/theia/`, `yarn build` runs `build:extensions` then `applications/browser`'s `build` (`theia rebuild:browser`, plugin download, `theia build --app-target=browser --mode development`), which regenerates `src-gen` and bundles the app (`$PB_REPO/docs/BUILD.md`, section "Theia half").
+2. **Build** inside `nix develop .#theia` (yarn does not work outside it). Each extension builds with `tsc -b` (`"build": "tsc -b"`); copy `$PB_REPO/theia/extensions/chrome-bar/tsconfig.json`. From `$PB_REPO/theia/`, `yarn build` runs `build:extensions` then `applications/browser`'s `build` (`theia rebuild:browser`, plugin download, `theia build --app-target=browser --mode development`), which regenerates `src-gen` and bundles the app (`$PB_REPO/docs/BUILD.md`, section "Theia half").
 
 ### C. Backend calls the frontend (reverse direction, relay pattern)
 

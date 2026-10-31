@@ -1,6 +1,6 @@
 # Doc conventions
 
-> Verified against PB 238fcdf on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs`
@@ -40,8 +40,17 @@ List rules:
 - No globs, symbols or line numbers in the list.
 - List every PB file whose content the doc states facts about.
 - The drift check diffs only these paths.
+- A `$PB_REPO/.planning/` path may appear in the list. The drift check diffs it like any other path, and a fact taken only from it is marked `UNVERIFIED:` (source precedence level 5). No doc in this repo links or cites this repo's `.planning/`.
 
 The regex is the minimum. `node scripts/check-docs.mjs` also rejects a bullet whose path contains `*`, `?`, `[`, `{`, `}`, `:` or a `..` segment, a bullet whose path does not exist in `$PB_REPO`, and a directory bullet without the trailing `/` or a file bullet with one.
+
+Further check-docs rules:
+
+- `template-var`: AGENTS.md, CLAUDE.md and SKILL.md contain no `{{` or `~{`. Theia 1.76 leaves them literal, so they belong in agent.md or a prompttemplate file.
+- `registry-count`: the number of `UNVERIFIED: ` markers in docs/ equals the number of U-### rows in docs/UNVERIFIED.md.
+- `index-reach`: docs/INDEX.md links every top-level doc and both directory READMEs, and each directory README links every file in its directory.
+- `recipe-count`: docs/recipes/README.md lists each recipe once, with that recipe's own PB core edits count.
+- `bare-pb-path`: a backticked PB path in docs/ or an entry file starts with `$PB_REPO/`. Paths under `scripts/`, `docs/` and `.planning/` are not checked, because this repo has the same directory names.
 
 Levels:
 
@@ -54,6 +63,8 @@ Stamping rules:
 - Each doc carries its own stamp. Different docs may name different commits.
 - Advance a stamp only after reading `git -C "$PB_REPO" diff <old-sha> HEAD --` followed by the doc's Source files paths, and re-checking every fact that diff touches.
 - Never move stamps in bulk.
+- The stamp date is the UTC date of the verification run (`date -u +%F`). Every doc in one wave uses that rule.
+- `docs/INDEX.md` and `docs/UNVERIFIED.md` hold no PB fact of their own: they link to docs or copy their markers. Their line 3 stamp is not advanced when the docs they point to are restamped.
 - When the PB working tree has uncommitted changes in a Source file, verify against `git -C "$PB_REPO" show HEAD:<path>`, not the working copy.
 
 Entry files carry no commit sha. To check freshness they tell the reader to run the drift check, `node scripts/check-drift.mjs`.
@@ -130,7 +141,7 @@ grep -rnE '/(home|Users)/|[~]/' docs AGENTS.md CLAUDE.md .agents .prompts
 
 Rules:
 
-- When two sources disagree, trust the higher one. Record the disagreement in `docs/CONFLICTS.md` and report the doc fact as described in `docs/FEEDBACK.md`. Both are backticked paths, not links, because those files arrive in later phases.
+- When two sources disagree, trust the higher one. Record the disagreement in [CONFLICTS.md](CONFLICTS.md) and report the doc fact as described in [FEEDBACK.md](FEEDBACK.md).
 - PB `.planning/` files are reading aids that can lag. A fact taken only from them is marked `UNVERIFIED:`.
 
 ## Shared rule blocks
@@ -140,9 +151,9 @@ Rules:
 - A block sits between a start line `<!-- BEGIN pb-rules:<name> -->` and an end line `<!-- END pb-rules:<name> -->`, each alone on its own line. `<name>` is `stop-and-ask`, `hard-rules` or `footer`.
 - A copy is the lines strictly between the two markers and is byte-identical to the source.
 - `stop-and-ask` goes in every doc made from a template in `docs/_templates/` and in the entry files except CLAUDE.md, which gets it through its `@AGENTS.md` import.
-- The full `hard-rules` block goes only in `docs/_shared/RULES.md` (the source), AGENTS.md, SKILL.md, agent.md, this file and `docs/10-changing-pb-core.md` (a later phase writes that file).
+- The full `hard-rules` block goes only in `docs/_shared/RULES.md` (the source), AGENTS.md, SKILL.md, agent.md and this file.
 - `footer` is the last three lines of every doc under docs/ and of `.prompts/project-info.prompttemplate`.
-- Recipes, subsystem references and `.prompts/project-info.prompttemplate` carry a one-line hard-rules pointer instead of the full block, to keep the recipe budget for steps. In docs, copy the pointer line from the template unchanged. Outside docs/, name `docs/_shared/RULES.md` as a backticked path. The pointer line is not quoted here, because its relative link would not resolve from docs/.
+- Recipes, subsystem references, `docs/10-changing-pb-core.md` and `.prompts/project-info.prompttemplate` carry a one-line hard-rules pointer instead of the full block, to keep the recipe budget for steps. In docs, copy the pointer line from the template unchanged. Outside docs/, name `docs/_shared/RULES.md` as a backticked path. The pointer line is not quoted here, because its relative link would not resolve from docs/.
 - A file that carries a block copy does not list the block's PB files in its own `Source files:`. The stamp and `Source files:` of `_shared/RULES.md` cover every copy.
 - Blocks contain no headings and no relative links.
 - To change a block, edit `docs/_shared/RULES.md` first, then copy the new block into every file that carries it, in the same commit.

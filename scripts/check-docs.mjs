@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // check-docs: checks docs/ and the entry files against docs/CONVENTIONS.md (the spec); names file, line and rule.
-// Usage: node scripts/check-docs.mjs [--self-test] [file ...]   (no file: the whole doc set)
-// Exit: 0 clean; 1 violations; 2 usage error, missing file, no PB checkout (set PB_REPO) or git failure.
+// Usage: node scripts/check-docs.mjs [--self-test] [--no-pb] [file ...]   (no file: the whole doc set)
+// --no-pb: skip the pb-path and pb-symbol rules and the PB checkout requirement (for CI, which has no PB checkout).
+// Exit: 0 clean; 1 violations; 2 usage error, missing file, no PB checkout (set PB_REPO) or git failure (not with --no-pb).
 // Output: <file>:<line>: <rule>: <message> on stdout, one summary line on stderr.
 // This is this repo's doc tool; AGENTS.md's "one driver, verify-platform.sh" rule governs PB core, not here.
 import fs from 'node:fs';
@@ -27,11 +28,11 @@ const ENTRY_FILES = [
 const posix = (p) => p.split(path.sep).join('/');
 const lineList = (text) => text.replace(/\r?\n$/, '').split(/\r?\n/);
 
-// PB reads: argument arrays, no shell; git grep gets --literal-pathspecs so a doc string is never pathspec magic.
-const pbGit = (pb, args) => spawnSync('git', ['-C', pb, ...args], { stdio: 'ignore' }).status === 0;
+// PB reads: argument arrays, no shell, no optional index writes; git grep gets --literal-pathspecs so a doc string is never pathspec magic.
+const pbGit = (pb, args) => spawnSync('git', ['--no-optional-locks', '-C', pb, ...args], { stdio: 'ignore' }).status === 0;
 const pbPresent = (pb) => pbGit(pb, ['rev-parse', '--git-dir']);
 const pbGitOut = (pb, args) => {
-  const r = spawnSync('git', ['-C', pb, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = spawnSync('git', ['--no-optional-locks', '-C', pb, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   return r.status === 0 ? r.stdout.trim() : null;
 };
 
@@ -182,10 +183,10 @@ const perLine = (rule, re, msg) => (c) => c.lines.forEach((l, i) => {
 
 // Only at a path start, so a URL path that holds a home segment and a token such as foo~/ are not flagged.
 const absPath = perLine('abs-path', /(^|[\s`"'(<])(\/(home|Users)\/|~\/)/, () => 'home-directory or tilde path; write a repo-relative or $PB_REPO/ path');
-// <file>.<ext>:<n> (ext starts with a letter, so 127.0.0.1:9 passes), #L<n>, or "line(s) N[-M] of/in $PB_REPO/...".
+// <file>.<ext>:<n> (ext starts with a letter, so 127.0.0.1:9 passes), #L<n>, or "line(s) N[-M | to M | and M] of/in $PB_REPO/...".
 // shortcut: a "host.tld:443" in prose is flagged too; add a URL exception if a doc ever needs one.
-const lineCite = perLine('line-cite', /\.[A-Za-z][A-Za-z0-9]{0,5}:[0-9]|#L[0-9]|\blines? [0-9]+(?:[-–][0-9]+)? (?:of|in) `?\$PB_REPO\//, () => 'line number citation; cite symbol plus path');
-const marker = perLine('marker', /\b(UNVERIFIED|GAP|NOT COVERED|ILLUSTRATIVE)\b(?!:)/, (m) => `marker ${m[1]} needs its colon: "${m[1]}:"`);
+const lineCite = perLine('line-cite', /\.[A-Za-z][A-Za-z0-9]{0,5}:[0-9]|#L[0-9]|\b[Ll]ines? [0-9]+(?:(?:[-–]|\s+to\s+|\s+and\s+)[0-9]+)? (?:of|in) `?\$PB_REPO\//, () => 'line number citation; cite symbol plus path');
+const marker = perLine('marker', /\b(UNVERIFIED|GAP|NOT COVERED|ILLUSTRATIVE)\b(?!:|\.md\b)/, (m) => `marker ${m[1]} needs its colon: "${m[1]}:"`);
 
 // shortcut: duplicate headings get no -1 suffix, non-ASCII letters are dropped, link syntax in a heading is kept and
 // setext headings are ignored (GitHub differs on all four); lychee's anchor check is the second opinion. Upgrade if a doc links to one.
@@ -308,17 +309,103 @@ function skillDescription(c) {
   else if (/^\s+\S/.test(desc.next)) c.add(desc.n, 'skill-description', 'description continues on the next line; keep it on one line');
 }
 
-const RULES = [stamp, header, kindHeader, pbPath, pbSymbol, absPath, lineCite, marker, link, block, requiredBlocks, footer, template, budget, skillDescription];
+// IN-01 (plan 19 review): Theia 1.76 leaves template variables literal in these entry files.
+const TEMPLATE_VAR_FILES = ['AGENTS.md', 'CLAUDE.md', '.agents/skills/powerbrowser-extensions/SKILL.md'];
+function templateVar(c) {
+  if (!TEMPLATE_VAR_FILES.includes(c.rel)) return;
+  c.lines.forEach((l, i) => {
+    if (/\{\{|~\{/.test(l)) c.add(i + 1, 'template-var', 'template variable opener "{{" or "~{" in an entry file; Theia 1.76 leaves it literal, so move it to .agents/agents/<id>/agent.md or a .prompttemplate file');
+  });
+}
+
+// Count of "UNVERIFIED: " in docs/ (any depth), skipping _templates and _shared dirs, CONVENTIONS.md and UNVERIFIED.md.
+// Same definition as the count command in docs/UNVERIFIED.md, reimplemented so no shell is needed.
+function registryCount(c) {
+  if (c.rel !== 'docs/UNVERIFIED.md') return;
+  let markers = 0;
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== '_templates') walk(abs); }
+      else if (e.name.endsWith('.md') && e.name !== 'UNVERIFIED.md') {
+        // CONVENTIONS.md quotes the marker in backticks to define it; only unquoted markers are counted there.
+        const quoted = e.name === 'CONVENTIONS.md' ? /`UNVERIFIED: /g : null;
+        for (const line of fs.readFileSync(abs, 'utf8').split('\n')) {
+          if (quoted) markers += (line.replace(quoted, '').match(/UNVERIFIED: /g) ?? []).length;
+          else markers += (line.match(/UNVERIFIED: /g) ?? []).length;
+        }
+      }
+    }
+  };
+  walk(path.join(c.root, 'docs'));
+  const rows = c.lines.filter((l) => /^\|\s*U-[0-9]{3}\s*\|/.test(l)).length;
+  if (rows !== markers) c.add(1, 'registry-count', `${markers} UNVERIFIED: marker(s) in docs/ but ${rows} registry row(s); add or close rows until the counts match`);
+}
+
+// Link targets (resolved to absolute paths) of the Markdown links in text, read from base; code is ignored.
+const linkTargets = (text, base) => stripCode(lineList(text))
+  .flatMap((l) => [...l.matchAll(LINK_RE)].map((m) => path.resolve(base, m[1].split('#')[0])));
+
+// docs/INDEX.md links every top-level doc, and each directory README; each directory README links every file in its directory.
+function indexReach(c) {
+  if (c.rel !== 'docs/INDEX.md') return;
+  const docs = path.join(c.root, 'docs');
+  const linked = new Set(linkTargets(c.text, docs));
+  const mdIn = (dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith('.md')).map((e) => e.name);
+  for (const f of mdIn(docs)) {
+    if (f !== 'INDEX.md' && !linked.has(path.join(docs, f))) c.add(1, 'index-reach', `docs/${f} is not linked from docs/INDEX.md; add a link`);
+  }
+  for (const dir of ['recipes', 'subsystems']) {
+    const readme = path.join(docs, dir, 'README.md');
+    if (!fs.existsSync(readme)) { c.add(1, 'index-reach', `docs/${dir}/README.md is missing; the directory is indexed through it`); continue; }
+    if (!linked.has(readme)) c.add(1, 'index-reach', `docs/${dir}/README.md is not linked from docs/INDEX.md; add a link`);
+    const inReadme = new Set(linkTargets(fs.readFileSync(readme, 'utf8'), path.join(docs, dir)));
+    for (const f of mdIn(path.join(docs, dir))) {
+      if (f !== 'README.md' && !inReadme.has(path.join(docs, dir, f))) c.add(1, 'index-reach', `docs/${dir}/${f} is not linked from docs/${dir}/README.md; add a link`);
+    }
+  }
+}
+
+// docs/recipes/README.md lists each recipe once, and its PB core edits count equals the recipe's own header count.
+function recipeCount(c) {
+  if (c.rel !== 'docs/recipes/README.md') return;
+  const dir = path.join(c.root, 'docs/recipes');
+  const body = stripCode(c.lines);
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isFile() || !e.name.endsWith('.md') || e.name === 'README.md') continue;
+    const own = /^PB core edits: ([0-9]+)$/m.exec(fs.readFileSync(path.join(dir, e.name), 'utf8'))?.[1];
+    const hits = body.map((l, i) => [l, i]).filter(([l]) => [...l.matchAll(LINK_RE)].some((m) => path.resolve(dir, m[1]) === path.join(dir, e.name)));
+    if (hits.length !== 1) { c.add(hits[0]?.[1] + 1 || 1, 'recipe-count', `${e.name} is listed ${hits.length} time(s) in docs/recipes/README.md; list it once`); continue; }
+    const [line, i] = hits[0];
+    const listed = /PB core edits: ([0-9]+)/.exec(line)?.[1];
+    if (own !== undefined && listed !== own) c.add(i + 1, 'recipe-count', `${e.name} lists PB core edits ${listed ?? 'none'}, but its own header says ${own}`);
+  }
+}
+
+// PB paths in docs/ and the entry files are written as $PB_REPO/<path>. Not checked: scripts/, docs/ and .planning/ paths,
+// because this repo has the same directory names.
+const BARE_PB_RE = /^(powerbrowser|theia|upstream|patches|brand|generated|inventory|ledger)\/|^(configuration\.toml|flake\.nix|defs\.mk|toolchain-baseline\.txt|\.mozconfig)$/;
+function barePbPath(c) {
+  if (!c.isDoc && !ENTRY_FILES.includes(c.rel)) return;
+  stripCode(c.lines, false).forEach((l, i) => {
+    for (const m of l.matchAll(/`([^`]+)`/g)) {
+      if (!BARE_PB_RE.test(m[1]) || l.slice(0, m.index).endsWith('$PB_REPO/')) continue;
+      c.add(i + 1, 'bare-pb-path', `${m[1]} is a PB path written bare; write it as $PB_REPO/${m[1]} (docs/CONVENTIONS.md, Paths and links)`);
+    }
+  });
+}
+
+const RULES = [stamp, header, kindHeader, pbPath, pbSymbol, absPath, lineCite, marker, link, block, requiredBlocks, footer, template, budget, skillDescription, templateVar, registryCount, indexReach, recipeCount, barePbPath];
 
 // ---- run: pure over (root, pbRepo, files) ----
 
-export function run({ root, pbRepo, files }) {
+export function run({ root, pbRepo, files, noPb = false }) {
   const rulesPath = path.join(root, 'docs/_shared/RULES.md');
   if (!fs.existsSync(rulesPath)) throw new Error(`docs/_shared/RULES.md not found under ${root}`);
   const canon = new Map();
   for (const b of parseBlocks(lineList(fs.readFileSync(rulesPath, 'utf8')))) if (b.e >= 0 && !canon.has(b.name)) canon.set(b.name, b.inner);
   if (!canon.has('footer')) throw new Error('docs/_shared/RULES.md has no footer block');
-  const pbOk = pbPresent(pbRepo);
+  const pbOk = !noPb && pbPresent(pbRepo);
   const out = [];
   const memo = new Map();
   const slugs = new Map();
@@ -340,7 +427,7 @@ export function run({ root, pbRepo, files }) {
     found.sort((a, b) => a.n - b.n);
     for (const f of found) out.push(`${rel}:${f.n}: ${f.rule}: ${f.msg}`);
   }
-  return { lines: out, pbOk, code: !pbOk ? 2 : out.length ? 1 : 0 };
+  return { lines: out, pbOk, code: noPb ? (out.length ? 1 : 0) : !pbOk ? 2 : out.length ? 1 : 0 };
 }
 
 // ---- self-test: fixtures live under os.tmpdir(), fake PB is a throwaway git repo ----
@@ -389,6 +476,8 @@ function doc(o = {}) {
 const recipe = (o = {}) => doc({ extra: ['PB core edits: 1'], body: [POINTER, '1. **PB core edit** Change x.', '2. Run y.'], ...o });
 const subsystem = (o = {}) => doc({ extra: ['Not read:', '- NOT COVERED: `$PB_REPO/lib/`', '', 'Status: partly working'], body: [POINTER, 'Text.'], ...o });
 const skill = (desc) => ['---', 'name: x', `description: ${desc}`, '---', '# Body', ''].join('\n');
+const registry = (rows) => doc({ title: '# Open unverified items', body: ['| ID | Claim |', '| --- | --- |', ...rows] });
+const indexDoc = (links) => doc({ title: '# Index', body: links });
 
 // Each case: subcases { files, scope?, expect: rule|null, min?, count?, want?: [substring], code?, pb? }.
 // A rule subcase passes when it yields >= min violations and every one carries that rule id.
@@ -450,10 +539,15 @@ function cases(tmp) {
     'line-cite': [
       { files: { 'docs/a.md': doc({ body: ['See api.mjs:12.', 'Or page#L40.', 'See foo.cpp:12.', 'Or x.h:3.', 'Read lines 10-20 of `$PB_REPO/src/api.mjs`.'] }) }, expect: 'line-cite', count: 5 },
       { files: { 'docs/a.md': doc({ body: ['Line 3 holds the stamp; see line 3 of this doc.', 'The server is 127.0.0.1:9.'] }) }, expect: null },
+      { files: { 'docs/a.md': doc({ body: ['Read lines 174 to 186 of `$PB_REPO/src/api.mjs`.'] }) }, expect: 'line-cite' },
+      { files: { 'docs/a.md': doc({ body: ['Read lines 91 and 92 of `$PB_REPO/src/api.mjs`.'] }) }, expect: 'line-cite' },
+      { files: { 'docs/a.md': doc({ body: ['Lines 174 to 186 of this doc hold the stamp, and lines 91 and 92 hold the table.'] }) }, expect: null },
     ],
     marker: [
       { files: { 'docs/a.md': doc({ body: ['UNVERIFIED that claim.', 'GAP in the API.'] }) }, expect: 'marker', min: 2 },
       { files: { 'docs/a.md': doc({ body: ['UNVERIFIED: x.', 'GAPS exist.'] }) }, expect: null },
+      // The registry file name is not a marker.
+      { files: { 'docs/a.md': doc({ body: ['The list is in docs/UNVERIFIED.md.'] }) }, expect: null },
     ],
     link: [
       {
@@ -508,6 +602,56 @@ function cases(tmp) {
       files: { 'docs/a.md': doc({ l5: 'Sources:', src: ['- `$PB_REPO/src/gone.mjs`'], body: ['`noSuchThing` in `$PB_REPO/src/api.mjs`.'] }) },
       expect: 'header', code: 2, pb: path.join(tmp, 'no-such-pb'),
     }],
+    'template-var': [{ files: { 'AGENTS.md': 'Use {{prompt:project-info}} here.\n' }, expect: 'template-var' }],
+    'template-var-clean': [{ files: { 'AGENTS.md': 'Plain entry text, no variables.\n' }, expect: null }],
+    'registry-count': [{
+      files: {
+        'docs/UNVERIFIED.md': registry(['| U-001 | one |', '| U-002 | two |']),
+        'docs/a.md': doc({ body: ['UNVERIFIED: x.', 'UNVERIFIED: y.', 'UNVERIFIED: z.'] }),
+      },
+      expect: 'registry-count', want: ['3 UNVERIFIED: marker(s)'],
+    }],
+    'registry-count-clean': [{
+      files: {
+        'docs/UNVERIFIED.md': registry(['| U-001 | one |', '| U-002 | two |']),
+        'docs/a.md': doc({ body: ['UNVERIFIED: x.', 'UNVERIFIED: y.'] }),
+      },
+      expect: null,
+    }],
+    'index-reach': [{
+      files: {
+        'docs/INDEX.md': indexDoc(['- [a](a.md)', '- [recipes](recipes/README.md)', '- [subsystems](subsystems/README.md)']),
+        'docs/a.md': doc(), 'docs/b.md': doc({ title: '# B' }),
+        'docs/recipes/README.md': doc({ title: '# Recipes', body: ['- [R](r.md), PB core edits: 1'] }), 'docs/recipes/r.md': recipe(),
+        'docs/subsystems/README.md': doc({ title: '# Subsystems', body: ['- [S](s.md)'] }), 'docs/subsystems/s.md': subsystem(),
+      },
+      expect: 'index-reach', want: ['docs/b.md'],
+    }],
+    'index-reach-clean': [{
+      files: {
+        'docs/INDEX.md': indexDoc(['- [a](a.md)', '- [b](b.md)', '- [recipes](recipes/README.md)', '- [subsystems](subsystems/README.md)']),
+        'docs/a.md': doc(), 'docs/b.md': doc({ title: '# B' }),
+        'docs/recipes/README.md': doc({ title: '# Recipes', body: ['- [R](r.md), PB core edits: 1'] }), 'docs/recipes/r.md': recipe(),
+        'docs/subsystems/README.md': doc({ title: '# Subsystems', body: ['- [S](s.md)'] }), 'docs/subsystems/s.md': subsystem(),
+      },
+      expect: null,
+    }],
+    'recipe-count': [{
+      files: { 'docs/recipes/README.md': doc({ title: '# Recipes', body: ['- [R](r.md), PB core edits: 2'] }), 'docs/recipes/r.md': recipe() },
+      expect: 'recipe-count', want: ['r.md'],
+    }],
+    'recipe-count-clean': [{
+      files: { 'docs/recipes/README.md': doc({ title: '# Recipes', body: ['- [R](r.md), PB core edits: 1'] }), 'docs/recipes/r.md': recipe() },
+      expect: null,
+    }],
+    'bare-pb-path': [{
+      files: { 'docs/a.md': doc({ body: ['Edit `theia/lib/one.txt` first.'] }) },
+      expect: 'bare-pb-path', want: ['$PB_REPO/'],
+    }],
+    'bare-pb-path-clean': [{
+      files: { 'docs/a.md': doc({ body: ['Edit `$PB_REPO/lib/one.txt` first.'] }) },
+      expect: null,
+    }],
   };
 }
 
@@ -544,6 +688,14 @@ function selfTest() {
       const bad = subs.map((s) => evalSub(tmp, pb, n++, s)).find((d) => d !== null);
       if (bad === undefined) { console.log(`ok ${name}`); passed++; } else { console.log(`FAIL ${name}: ${bad}`); failed++; }
     }
+    // --no-pb: no PB checkout is needed, a PB-only rule is not run, and a non-PB violation is still reported.
+    const noPbRoot = path.join(tmp, 'no-pb');
+    put(noPbRoot, 'docs/_shared/RULES.md', RULES_MD);
+    put(noPbRoot, 'docs/bad.md', doc({ src: ['- `$PB_REPO/src/gone.mjs`'], body: ['Uses `noSuchThing` in `$PB_REPO/src/api.mjs`, see [x](missing.md).'] }));
+    put(noPbRoot, 'docs/good.md', doc({ src: ['- `$PB_REPO/src/gone.mjs`'] }));
+    const bad = run({ root: noPbRoot, pbRepo: path.join(tmp, 'absent'), files: ['docs/bad.md'], noPb: true });
+    const good = run({ root: noPbRoot, pbRepo: path.join(tmp, 'absent'), files: ['docs/good.md'], noPb: true });
+    if (bad.code === 1 && bad.lines.length === 1 && / link: /.test(bad.lines[0]) && good.code === 0) { console.log('ok no-pb'); passed++; } else { console.log(`FAIL no-pb: code ${bad.code}/${good.code} lines ${JSON.stringify(bad.lines)}`); failed++; }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -569,11 +721,13 @@ function defaultScope(root = ROOT) {
 function main(argv) {
   const flags = argv.filter((a) => a.startsWith('--'));
   const args = argv.filter((a) => !a.startsWith('--'));
-  if (flags.some((f) => f !== '--self-test')) {
-    console.error(`check-docs: unknown option ${flags.find((f) => f !== '--self-test')}. Usage: node scripts/check-docs.mjs [--self-test] [file ...]`);
+  const known = ['--self-test', '--no-pb'];
+  if (flags.some((f) => !known.includes(f))) {
+    console.error(`check-docs: unknown option ${flags.find((f) => !known.includes(f))}. Usage: node scripts/check-docs.mjs [--self-test] [--no-pb] [file ...]`);
     return 2;
   }
-  if (flags.length) return selfTest();
+  if (flags.includes('--self-test')) return selfTest();
+  const noPb = flags.includes('--no-pb');
   const files = [];
   for (const a of args) {
     const abs = path.resolve(a);
@@ -587,7 +741,7 @@ function main(argv) {
   const pbRepo = process.env.PB_REPO ? path.resolve(process.env.PB_REPO) : path.resolve(ROOT, '../Power-Browser');
   let r;
   try {
-    r = run({ root: ROOT, pbRepo, files: files.length ? files : defaultScope() });
+    r = run({ root: ROOT, pbRepo, noPb, files: files.length ? files : defaultScope() });
   } catch (e) {
     console.error(`check-docs: ${e.message}`);
     return 2;
@@ -595,7 +749,7 @@ function main(argv) {
   for (const l of r.lines) console.log(l);
   const nFiles = new Set(r.lines.map((l) => l.split(':')[0])).size;
   console.error(r.lines.length ? `check-docs: ${r.lines.length} violation(s) in ${nFiles} file(s)` : 'check-docs: no violations');
-  if (!r.pbOk) {
+  if (!noPb && !r.pbOk) {
     console.error(`check-docs: no PB git checkout at ${pbRepo}; PB path and symbol checks did not run. Set PB_REPO to a PowerBrowser git checkout and rerun.`);
   }
   return r.code;

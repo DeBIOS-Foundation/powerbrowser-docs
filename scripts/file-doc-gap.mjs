@@ -14,10 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { FORM, FIELDS, TYPES, keyLine, titleOf, isDocPath, refuseHits, parityProblems } from './lib/doc-gap-rules.mjs';
+import { FORM, FIELDS, TYPES, keyLine, titleOf, isDocPath, refuseHits, parityProblems, parseForm } from './lib/doc-gap-rules.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE = 'node scripts/file-doc-gap.mjs --type <gap type> --doc docs/<file>.md --pb-commit <sha|none> --task-file <file> --evidence-file <file>';
+// The only repository a Route 1 issue is filed to (WR-05; docs/FEEDBACK.md names it). The self-test patches this line in its fixture copies.
+const TARGET = 'DeBIOS-Foundation/powerbrowser-docs';
 
 // ---- report: title, key line, body ----
 
@@ -197,6 +199,7 @@ function file(r) {
   }
   const slug = slugOf(git(ROOT, ['remote', 'get-url', 'origin']));
   if (!slug) return notFiled(r, 'no GitHub remote named origin');
+  if (slug.toLowerCase() !== TARGET.toLowerCase()) return notFiled(r, `origin is ${slug}, not the docs repository ${TARGET}`);
   // --active: an expired token on another account must not hide a working active login.
   const auth = gh(['auth', 'status', '--hostname', 'github.com', '--active']);
   if (auth.error?.code === 'ENOENT') return notFiled(r, 'gh is not installed');
@@ -205,6 +208,7 @@ function file(r) {
   const resolved = view.status === 0 ? lastLine(view.stdout) : '';
   if (resolved.toLowerCase() !== slug.toLowerCase()) return notFiled(r, `gh resolves ${resolved || 'no repository'}, but origin is ${slug}${resolved ? '' : ghWhy(view, r)}`);
   const pbRepo = process.env.PB_REPO ? path.resolve(process.env.PB_REPO) : path.resolve(ROOT, '../Power-Browser');
+  // Defence in depth: the TARGET pin above already refuses PowerBrowser's own repository; this guards a changed pin.
   const pbSlug = slugOf(git(pbRepo, ['remote', 'get-url', 'origin']));
   if (pbSlug && pbSlug.toLowerCase() === slug.toLowerCase()) return notFiled(r, "the repository is PowerBrowser's own repository");
   // Fail closed without a PB checkout too: the target must hold this repo's issue form.
@@ -222,7 +226,13 @@ function file(r) {
   let issues = null;
   try { issues = JSON.parse(list.stdout); } catch { /* not JSON: handled below */ }
   if (list.status !== 0 || !Array.isArray(issues)) return notFiled(r, `gh issue list failed${ghWhy(list, r)}`);
-  const dup = issues.find((it) => typeof it?.body === 'string' && it.body.includes(keyLine(r.doc, r.type)));
+  // WR-08: a match needs the same form test as triage (parseForm, rule S6). A body that is not a form never matches, so a
+  // third-party issue with a matching title or key line cannot capture the report.
+  const dup = issues.find((it) => {
+    if (typeof it?.body !== 'string') return false;
+    const form = parseForm(it.body);
+    return form.kind === 'form' && form.values.Doc === r.doc && form.values['Gap type'] === r.type;
+  });
   // An unfiled doc-gaps/ report for the same key goes into this issue or comment, so it is not filed twice later.
   let local;
   try { local = findLocal(r); } catch (e) { return notFiled(r, e.message); }
@@ -311,6 +321,8 @@ const expectedBody = (ev = EVIDENCE, sha = '1ba359e', task = TASK) => [
 ].join('\n');
 const expectedFile = (...a) => `# [doc-gap] docs/09-tabs-reference.md: wrong-fact\n\n${expectedBody(...a)}`;
 const KEY = '<' + '!-- doc-gap:docs/09-tabs-reference.md:wrong-fact -->';
+// A complete form body, as a web-form issue or a report filed by this script has it (WR-08: only a form body can match).
+const formBody = (type = 'wrong-fact', doc = DOC) => `${KEY}\n\n${FIELDS.map(([, label]) => `### ${label}\n\n${{ 'Gap type': type, Doc: doc }[label] ?? 'Old text.'}\n`).join('\n')}`;
 
 // Refusal samples, built by concatenation so this file holds no contiguous secret-shaped literal: [case, rule id, line, refused line number (default 2)].
 const X = 'Zq9'.repeat(12);
@@ -358,6 +370,7 @@ function selfTest() {
   try {
     const formText = fs.readFileSync(path.join(ROOT, FORM), 'utf8');
     const self = fs.readFileSync(fileURLToPath(import.meta.url));
+    const TARGET_LINE = /^const TARGET = '[^']*';$/m;
     const sharedRules = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'lib', 'doc-gap-rules.mjs'));
     const realGit = findOnPath('git');
     if (!realGit) throw new Error('no git on PATH');
@@ -376,10 +389,11 @@ function selfTest() {
 
     let n = 0;
     // A fresh docs-repo fixture holding a copy of this script, so the copy's ROOT is the fixture.
-    const fixture = ({ origin = 'git@github.com:acme/docs.git', feedback = true } = {}) => {
+    // target: the repository the copy's TARGET constant names (WR-05); null keeps the production constant.
+    const fixture = ({ origin = 'git@github.com:acme/docs.git', feedback = true, target = 'acme/docs' } = {}) => {
       const fx = path.join(tmp, `case-${++n}`);
       const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(fx, rel)), { recursive: true }); fs.writeFileSync(path.join(fx, rel), text); };
-      put('scripts/file-doc-gap.mjs', self);
+      put('scripts/file-doc-gap.mjs', target === null ? self : self.toString().replace(TARGET_LINE, `const TARGET = '${target}';`));
       put('scripts/lib/doc-gap-rules.mjs', sharedRules);
       put(FORM, formText);
       put(DOC, '# Tabs\n');
@@ -518,7 +532,7 @@ function selfTest() {
         return want(r.code === 0 && r.out === expectedFile(shown.join('\n'), '1ba359e', 'Ask `@someone`.'), show(r));
       }],
       ['dedupe-comment', () => {
-        const issues = [{ number: 3, url: 'https://github.com/acme/docs/issues/3', body: 'unrelated' }, { number: 7, url: 'https://github.com/acme/docs/issues/7', body: `${KEY}\n\n### Gap type\n\nwrong-fact\n` }];
+        const issues = [{ number: 3, url: 'https://github.com/acme/docs/issues/3', body: 'unrelated' }, { number: 7, url: 'https://github.com/acme/docs/issues/7', body: formBody() }];
         const r = cli(fixture(), { state: { issues } });
         const c = callsOf(r, 'issue comment');
         return want(r.code === 0 && r.first === 'commented: https://github.com/acme/docs/issues/7#issuecomment-1', show(r))
@@ -526,10 +540,38 @@ function selfTest() {
           ?? want(!callsOf(r, 'issue create').length, 'an issue was created');
       }],
       ['dedupe-other-key', () => {
-        const issues = [{ number: 7, url: 'https://github.com/acme/docs/issues/7', body: KEY.replace(':wrong-fact ', ':guessed ') }];
+        const issues = [{ number: 7, url: 'https://github.com/acme/docs/issues/7', body: formBody('guessed') }];
         const r = cli(fixture(), { state: { issues } });
         return want(r.code === 0 && r.first === 'filed: https://github.com/acme/docs/issues/99', show(r))
           ?? want(callsOf(r, 'issue create').length === 1 && !callsOf(r, 'issue comment').length, 'expected one issue create and no comment');
+      }],
+      ['dedupe-non-form-ignored', () => {
+        const body = `${KEY}\n\n### Gap type\n\nwrong-fact\n\n### Doc\n\n${DOC}\n`;
+        const r = cli(fixture(), { state: { issues: [{ number: 7, url: 'https://github.com/acme/docs/issues/7', body }] } });
+        return want(r.code === 0 && r.first.startsWith('filed: '), show(r))
+          ?? want(callsOf(r, 'issue create').length === 1 && !callsOf(r, 'issue comment').length, 'a non-form body with a matching key line and sections was used as the match');
+      }],
+      ['dedupe-form-sections', () => {
+        const body = formBody();
+        const r = cli(fixture(), { state: { issues: [{ number: 7, url: 'https://github.com/acme/docs/issues/7', body }] } });
+        const c = callsOf(r, 'issue comment');
+        return want(r.code === 0 && r.first.startsWith('commented: '), show(r))
+          ?? want(c.length === 1 && c[0].argv[2] === '7', `comment calls ${JSON.stringify(c)}`)
+          ?? want(!callsOf(r, 'issue create').length, 'an issue was created');
+      }],
+      ['dedupe-form-other-type', () => {
+        const body = formBody('guessed');
+        const r = cli(fixture(), { state: { issues: [{ number: 7, url: 'https://github.com/acme/docs/issues/7', body }] } });
+        return want(r.code === 0 && r.first.startsWith('filed: '), show(r))
+          ?? want(callsOf(r, 'issue create').length === 1 && !callsOf(r, 'issue comment').length, 'expected one issue create and no comment');
+      }],
+      ['target-pin-refuses-other', fallbackCase({ target: null }, {}, 'origin is acme/docs, not the docs repository DeBIOS-Foundation/powerbrowser-docs', { noCalls: true })],
+      ['target-pin-files-target', () => {
+        const fx = fixture({ origin: 'git@github.com:DeBIOS-Foundation/powerbrowser-docs.git', target: null });
+        const r = cli(fx, { state: { repo: 'DeBIOS-Foundation/powerbrowser-docs' } });
+        const c = callsOf(r, 'issue create');
+        return want(r.code === 0 && r.first.startsWith('filed: '), show(r))
+          ?? want(c.length === 1 && c[0].argv[c[0].argv.indexOf('-R') + 1] === 'github.com/DeBIOS-Foundation/powerbrowser-docs', `create calls ${JSON.stringify(c)}`);
       }],
       ['fallback-no-gh', fallbackCase({}, { noGh: true }, 'gh is not installed')],
       ['fallback-unauthenticated', fallbackCase({}, { state: { auth: false } }, 'gh is not logged in')],
@@ -543,7 +585,7 @@ function selfTest() {
       ['fallback-no-remote', fallbackCase({ origin: null }, {}, 'no GitHub remote named origin', { noCalls: true })],
       ['fallback-non-github-remote', fallbackCase({ origin: 'https://gitlab.com/acme/docs.git' }, {}, 'no GitHub remote named origin', { noCalls: true })],
       ['fallback-other-repo', fallbackCase({}, { state: { repo: 'acme/other' } }, 'gh resolves acme/other, but origin is acme/docs')],
-      ['fallback-pb-repo', fallbackCase({ origin: 'git@github.com:acme/pb.git' }, { state: { repo: 'acme/pb' } }, "PowerBrowser's own repository")],
+      ['fallback-pb-repo', fallbackCase({ origin: 'git@github.com:acme/pb.git', target: 'acme/pb' }, { state: { repo: 'acme/pb' } }, "PowerBrowser's own repository")],
       ['fallback-no-pb-checkout-no-form', fallbackCase({}, { pbRepo: null, state: { form: false } }, 'cannot confirm that acme/docs holds .github/ISSUE_TEMPLATE/doc-gap.yml')],
       ['file-no-pb-checkout', () => {
         const r = cli(fixture(), { pbRepo: null });
@@ -574,7 +616,7 @@ function selfTest() {
       ['fallback-label-list-fails', fallbackCase({}, { state: { fail: ['label list'] } }, 'gh label list failed')],
       ['fallback-issue-list-fails', fallbackCase({}, { state: { fail: ['issue list'] } }, 'gh issue list failed')],
       ['fallback-issue-list-not-json', fallbackCase({}, { state: { issuesRaw: 'not json' } }, 'gh issue list failed')],
-      ['fallback-comment-fails', fallbackCase({}, { state: { fail: ['issue comment'], issues: [{ number: 7, body: KEY }] } }, 'gh issue comment failed')],
+      ['fallback-comment-fails', fallbackCase({}, { state: { fail: ['issue comment'], issues: [{ number: 7, body: formBody() }] } }, 'gh issue comment failed')],
       ['fake-gh-rejects-flags', () => {
         const st = path.join(tmp, 'fake-state.json');
         const log = path.join(tmp, 'fake-log');

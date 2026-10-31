@@ -1,6 +1,6 @@
 # Theia/VS Code plugins and Theia AI
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/CLAUDE.md`
@@ -91,12 +91,15 @@ Do not use this surface when:
 Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask the user before each one ([Stop and ask](_shared/RULES.md#stop-and-ask)).
 
 1. Get the archive and its sha256 (example for Open VSX):
+
    ```sh
    curl -sL -o x.vsix https://open-vsx.org/api/<publisher>/<name>/<version>/file/<publisher>.<name>-<version>.vsix
    sha256sum x.vsix
    ```
+
 2. **PB core edit**: Add an entry to `$PB_REPO/configuration.toml` (or to a downstream `PB_CONFIG_DIR/configuration.toml`; arrays replace, never merge):
    ILLUSTRATIVE: an `[[extensions]]` entry with placeholder values; not a PB file.
+
    ```toml
    [[extensions]]
    id = "publisher.name"          # must contain a dot; publisher = text before the first dot
@@ -104,8 +107,10 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
    version = "1.2.3"              # exact; required for openvsx and npm
    sha256 = "<64 hex of the archive bytes>"
    ```
+
    Other sources:
    ILLUSTRATIVE: `[[extensions]]` entries for the other three sources, placeholder values; not a PB file.
+
    ```toml
    [[extensions]]
    id = "publisher.name"
@@ -126,6 +131,7 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
    path = "relative/folder"               # packed with `npm pack --ignore-scripts`; sha256 is of the packed .tgz
    sha256 = "..."
    ```
+
 3. **PB core edit**: Run `cd "$PB_REPO" && nix develop .#theia --command node scripts/generate.mjs`; bare `node` on the host fails without the pinned `inkscape` ([CF-05](CONFLICTS.md#cf-05)). It writes the gitignored `$PB_REPO/generated/theia-plugins.json`. Copy that map into `$PB_REPO/theia/applications/browser/package.json` as the top-level `theiaPlugins` block (the generator's copy-over sets only that block; today the block is absent because the map is `{}`; `emitTheiaPlugins` in `$PB_REPO/scripts/generate.mjs`).
 4. Declare every `extensionDependencies` / `extensionPack` id of the plugin as its own `[[extensions]]` entry; the download step fails otherwise.
 5. Inside `nix develop .#theia`: `cd "$PB_REPO"/theia/applications/browser && yarn build` (runs `rebuild`, then `download:plugins`, then `theia build`).
@@ -139,6 +145,7 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
 
 1. **PB core edit**: Create `$PB_REPO/theia/extensions/<name>/` (the `workspaces` glob `extensions/*` of `$PB_REPO/theia/package.json` picks it up). Copy `$PB_REPO/theia/extensions/telemetry/package.json` and `$PB_REPO/theia/extensions/telemetry/tsconfig.json` (`rootDir: src`, `outDir: lib`, decorators on), then add the AI dependency at the pinned release:
    ILLUSTRATIVE: the telemetry `package.json` with the name changed and `@theia/ai-core` added; not compiled.
+
    ```json
    {
      "private": true,
@@ -154,8 +161,10 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
      "scripts": { "clean": "rm -rf lib *.tsbuildinfo", "build": "tsc -b" }
    }
    ```
+
 2. **PB core edit**: Implement the tool. Pattern from `$PB_REPO/theia/node_modules/@theia/ai-ide/src/browser/todo-tool.ts` (`TodoWriteTool`):
    ILLUSTRATIVE: a tool written after the `TodoWriteTool` pattern; not compiled.
+
    ```ts
    import { injectable, inject } from '@theia/core/shared/inversify';
    import { ToolProvider, ToolRequest } from '@theia/ai-core/lib/common';
@@ -181,8 +190,10 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
        }
    }
    ```
+
 3. **PB core edit**: Bind it in the frontend module with the helper (binds to self in singleton scope, then `ToolProvider` to it):
    ILLUSTRATIVE: a frontend module that binds the tool above; not compiled.
+
    ```ts
    import { ContainerModule } from '@theia/core/shared/inversify';
    import { bindToolProvider } from '@theia/ai-core/lib/common';
@@ -190,6 +201,7 @@ Steps marked **PB core edit** change tracked files in `$PB_REPO`; stop and ask t
        bindToolProvider(ListGroupsTool, bind);
    });
    ```
+
 4. Reference the tool from an agent prompt as `~{powerbrowser_list_groups}` (a leading `?`, `~{?id}`, marks it deferred). Users can also add it in a custom agent or prompt fragment.
 5. **PB core edit**: Add `"@powerbrowser/<name>": "0.1.0"` to the `dependencies` of `$PB_REPO/theia/applications/browser/package.json`, and append `&& yarn --cwd extensions/<name> build` to the explicit `build:extensions` script in `$PB_REPO/theia/package.json` (it lists each extension by name; `applications/browser`'s own `yarn build` does not compile extensions). Inside `nix develop .#theia`: `cd "$PB_REPO"/theia && yarn install --ignore-scripts --frozen-lockfile && (cd node_modules/drivelist && node-gyp rebuild) && yarn build` (the install form of `$PB_REPO/docs/BUILD.md`, section "Theia half"; a bare `yarn` runs install scripts PB deliberately skips). Drop `--frozen-lockfile` (keep `--ignore-scripts`) only when the extension adds a third-party dependency that is not in `$PB_REPO/theia/yarn.lock`, such as a dependency outside the pinned `@theia/*` set. Theia extensions cannot be installed at runtime.
 
@@ -240,6 +252,7 @@ For an OpenAI-compatible endpoint, no code is needed: set `ai-features.openAiCus
 1. User enables AI: `"ai-features.AiEnable.enableAI": true` (user `settings.json` under `$THEIA_CONFIG_DIR`, default `${XDG_CONFIG_HOME:-$HOME/.config}/powerbrowser`).
 2. Add the server under `ai-features.mcp.mcpServers`:
    ILLUSTRATIVE: a user `settings.json` fragment with placeholder servers; not a PB file.
+
    ```json
    {
      "ai-features.mcp.mcpServers": {
@@ -257,6 +270,7 @@ For an OpenAI-compatible endpoint, no code is needed: set `ai-features.openAiCus
      }
    }
    ```
+
 3. Start it with the command "MCP: Start MCP Server" (command id `mcp.startserver`; also `mcp.stopserver`, `mcp.signin` and `mcp.signout`; all four in `$PB_REPO/theia/node_modules/@theia/ai-mcp-ui/lib/browser/mcp-command-contribution.js` (`mcp.startserver`)). Autostart applies only from the next start.
 4. Each MCP tool registers in `ToolInvocationRegistry` as id `mcp_<server>_<tool>` with `providerName: "mcp_<server>"`, and a prompt fragment `mcp_<server>_tools` lists them all (`~{mcp_<server>_<tool>}` per line). With `deferLoading: true` the fragment uses `~{?mcp_<server>_<tool>}`. Put `{{prompt:mcp_<server>_tools}}` (include syntax used by ai-ide, e.g. `{{prompt:project-info}}`, used by `$PB_REPO/theia/node_modules/@theia/ai-ide/lib/browser/architect-prompt-template.js` (`{{prompt:project-info}}`)) or individual `~{...}` ids in an agent prompt.
 

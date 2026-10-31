@@ -1,6 +1,6 @@
 # Firefox WebExtensions
 
-> Verified against PB 8843936 on 2026-10-21. Level: source-read
+> Verified against PB 5571d3d on 2026-10-31. Level: source-read
 
 Source files:
 - `$PB_REPO/configuration.toml`
@@ -16,6 +16,7 @@ Source files:
 - `$PB_REPO/docs/REBRANDING.md`
 - `$PB_REPO/powerbrowser/shell/PowerBrowserAPI.sys.mjs`
 - `$PB_REPO/powerbrowser/shell/powerbrowser.xhtml`
+- `$PB_REPO/powerbrowser/shell/powerbrowser.js`
 - `$PB_REPO/theia/extensions/tab-uris/src/browser/browser-window-command.ts`
 - `$PB_REPO/patches/`
 - `$PB_REPO/CLAUDE.md`
@@ -26,7 +27,7 @@ Facts cited from `$PB_REPO/upstream/` (prefs, build flags, add-on manager and na
 
 ## What it is
 
-PowerBrowser runs stock Gecko from the Firefox ESR tag pinned in `$PB_REPO/configuration.toml` (table `[upstreams]`, `firefox_esr_tag = "FIREFOX_153_5_0esr_BUILD1"`). The WebExtensions engine is unmodified upstream code: the PB patch stack (`$PB_REPO/patches/`) touches no add-on or extension code.
+PowerBrowser runs stock Gecko from the Firefox ESR tag pinned in `$PB_REPO/configuration.toml` (table `[upstreams]`, `firefox_esr_tag = "FIREFOX_153_5_0esr_BUILD1"`). The WebExtensions engine is upstream code, changed in one place. Patch `$PB_REPO/patches/050-extension-tab-host.patch` is the only patch in the stack (`$PB_REPO/patches/`) that touches extension code: it edits `browser/components/extensions/parent/` (`ext-browser.js`, `ext-tabs.js`, `ext-sessions.js`, and four more), `toolkit/components/extensions/parent/ext-tabs-base.js` and `ExtensionShortcuts.sys.mjs`. It makes the Theia shell window a tab host for WebExtension APIs (see the gotcha on `browser.tabs` below). It does not change the add-on loader, the install path or the permission model.
 
 - Manifest V2 and Manifest V3 are both accepted (`manifest_version` schema: `minimum: 2`, `maximum: 3`, in `$PB_REPO/upstream/toolkit/components/extensions/schemas/manifest.json`).
 - Add-ons are installed by the Firefox enterprise policy engine. PB ships `distribution/policies.json` in the package, and its `ExtensionSettings` key is the install list.
@@ -199,7 +200,8 @@ From `$PB_REPO/CLAUDE.md`:
 - There is no PB config key for `xpinstall.signatures.required`. `$PB_REPO/powerbrowser/branding/<variant>/pref/firefox-branding.js` is generator output (`emitFirefoxBrandingJs` in `$PB_REPO/scripts/generate.mjs`), so hand-editing it fails the byte-identity check. There is no `$PB_REPO/configuration.toml` route. The only way to ship it is a **PB core edit**: add the line to `FIREFOX_BRANDING_BASE_LINES` in `$PB_REPO/scripts/generate.mjs` and regenerate (see [Gotchas](07-automation-and-disabled-surfaces.md#gotchas) in doc 07, item 4). That changes the release signing posture; get user approval first. (The header comment of `$PB_REPO/scripts/verify-webextensions.mjs` says a downstream flips the pref "in its own branding pref file"; no generator mechanism for that exists.)
 - `extensions.update.autoUpdateDefault = false`. UNVERIFIED: the policy engine re-fetches a changed `install_url` of an https add-on while auto-update is off; this was not tested. Verify: declare an https add-on, replace the XPI at its `install_url` with a higher version, restart PB and read the add-on version in `about:addons` of a stock browser window.
 - The shell window has `windowtype="powerbrowser:main"` (attribute of the root element of `$PB_REPO/powerbrowser/shell/powerbrowser.xhtml`), not `navigator:browser`, and contains no toolbox, nav-bar, sidebar or unified-extensions element. Browser actions, page actions, popups and `sidebar_action` render only in stock browser windows.
-- UNVERIFIED: whether `browser.tabs` and `browser.windows` enumerate the Theia shell window or the in-shell web tabs; not tested. Assume they see only stock browser windows until tested. Verify: install a policy add-on whose background script logs `browser.windows.getAll({ populate: true })` while a Theia web tab is open, and compare the result with the open windows.
+- Patch 050 (source at 5571d3d) makes the shell window a browser window for WebExtension APIs. Its root gets the `extensiontabhost` attribute in `$PB_REPO/powerbrowser/shell/powerbrowser.js`, and `WindowTrackerBase.isBrowserWindow` accepts such a window. Each in-shell web tab is added as a tab node, so `browser.tabs` and `browser.windows` are expected to list them. `browser.sessions`, browser actions, page actions, context menus, sidebar actions and per-tab zoom skip the shell window in source. The Theia frame itself is never a tab node. Extension writes the host cannot make are refused: opening or closing a tab and switching the selected tab (the `gBrowser` stand-in in `powerbrowser.js`), and pinned, highlighted and muted changes, or an active change on a tab that is not selected (patch 050, `ext-tabs.js`). A non-http(s) URL other than `about:blank` is refused for a shell tab.
+- UNVERIFIED: whether `browser.tabs` and `browser.windows` enumerate the in-shell web tabs and the shell window in a running build, as the source above implies. Not tested. Assume the source is right only after this test. Verify: install a policy add-on whose background script logs `browser.windows.getAll({ populate: true })` while a Theia web tab is open, and compare the result with the open windows.
 - Sideloaded add-ons (dropped into profile or system extension dirs) are disabled until the user enables them in `about:addons`, which is not reachable from Theia. Use policy install instead.
 - Native messaging hosts use the hardcoded `$HOME/.mozilla` path, shared with any installed Firefox, not a PB-branded path.
 - Upstream Firefox ML prefs (`extensions.ml.enabled`, trialML API) are upstream defaults and not set by PB (the upstream default of `extensions.ml.enabled` is `true`: `$PB_REPO/upstream/modules/libpref/init/all.js`, pref `extensions.ml.enabled`; PB branding prefs do not override it).
